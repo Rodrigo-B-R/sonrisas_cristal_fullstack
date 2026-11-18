@@ -1,16 +1,22 @@
 # Despliegue completo de Sonrisas de Cristal: BD, API, pgAdmin, Prometheus y Grafana.
-# Un solo comando:  docker compose up -d --build
+# Un solo comando:  docker compose up -d
 #
-# Las imagenes de la API y de la BD se construyen desde sus repos (carpetas hermanas):
-#   ../sonrisas_cristal_api   y   ../sonrisas_cristal_db
-# Cuando publiques las imagenes en un registro (GHCR), quita las lineas "build:" y deja solo "image:".
+# Las imagenes de la API y de la BD se descargan de GHCR (publicas); no hace falta tener sus repos.
+# Para actualizar: cambia API_TAG / DB_TAG en el .env y corre  docker compose pull && docker compose up -d
 name: sonrisas
+
+# Rota los logs de Docker para que no llenen el disco de la VM.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   postgres:
-    build: ../sonrisas_cristal_db
-    image: sonrisas-cristal-postgres:17
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-db:${DB_TAG:-1.0.0}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -28,9 +34,9 @@ services:
       retries: 10
 
   api:
-    build: ../sonrisas_cristal_api
-    image: sonrisas-cristal-api
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-api:${API_TAG:-1.0.0}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
@@ -39,7 +45,7 @@ services:
       LATE_TOLERANCE_MINUTES: ${LATE_TOLERANCE_MINUTES:-5}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       METRICS_TOKEN: ${METRICS_TOKEN}
-      SEED_PASSWORD: ${SEED_PASSWORD:-Cristal2026}
+      SEED_PASSWORD: ${SEED_PASSWORD:?Falta SEED_PASSWORD en el .env (usa una contrasena privada)}
       LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-5/minute}
       DEFAULT_RATE_LIMIT: ${DEFAULT_RATE_LIMIT:-300/minute}
       LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-10}
@@ -56,6 +62,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:9.9
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
@@ -74,6 +81,7 @@ services:
   postgres_exporter:
     image: prometheuscommunity/postgres-exporter:v0.16.0
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
       DATA_SOURCE_USER: monitor
@@ -86,6 +94,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.0.1
     restart: unless-stopped
+    logging: *default-logging
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -107,6 +116,7 @@ services:
   grafana:
     image: grafana/grafana:11.4.0
     restart: unless-stopped
+    logging: *default-logging
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
