@@ -1,0 +1,136 @@
+# Despliegue completo de Sonrisas de Cristal: BD, API, pgAdmin, Prometheus y Grafana.
+# Un solo comando:  docker compose up -d --build
+#
+# Las imagenes de la API y de la BD se construyen desde sus repos (carpetas hermanas):
+#   ../sonrisas_cristal_api   y   ../sonrisas_cristal_db
+# Cuando publiques las imagenes en un registro (GHCR), quita las lineas "build:" y deja solo "image:".
+name: sonrisas
+
+services:
+  postgres:
+    build: ../sonrisas_cristal_db
+    image: sonrisas-cristal-postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD}
+    # Sin ports: solo accesible dentro de la red (API, pgAdmin y postgres_exporter).
+    networks: [sonrisas_net]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ../sonrisas_cristal_api
+    image: sonrisas-cristal-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      TZ: ${TZ:-America/Monterrey}
+      LATE_TOLERANCE_MINUTES: ${LATE_TOLERANCE_MINUTES:-5}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      METRICS_TOKEN: ${METRICS_TOKEN}
+      SEED_PASSWORD: ${SEED_PASSWORD:-Cristal2026}
+      LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-5/minute}
+      DEFAULT_RATE_LIMIT: ${DEFAULT_RATE_LIMIT:-300/minute}
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-10}
+      LOGIN_LOCKOUT_MINUTES: ${LOGIN_LOCKOUT_MINUTES:-15}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+    # Cuando llegue el tunel de Cloudflare, quita este puerto: la API quedara solo en la red interna.
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks: [sonrisas_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pgadmin:
+    image: dpage/pgadmin4:9.9
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    networks: [sonrisas_net]
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Traduce las estadisticas internas de PostgreSQL a metricas de Prometheus.
+  # Entra con el usuario "monitor" (rol pg_monitor: solo lectura de estadisticas).
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: monitor
+      DATA_SOURCE_PASS: ${MONITOR_DB_PASSWORD}
+    networks: [sonrisas_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+    # Solo desde esta maquina: Grafana lo lee por la red interna.
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [sonrisas_net]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    # El token de /metrics sale del mismo .env que usa la API (una sola fuente).
+    secrets:
+      - metrics_token
+    depends_on:
+      - api
+      - postgres_exporter
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks: [sonrisas_net]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  sonrisas_net:
