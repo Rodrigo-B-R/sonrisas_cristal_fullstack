@@ -14,7 +14,7 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-db:${DB_TAG:-1.0.0}
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-db:${DB_TAG:-alpine}
     restart: unless-stopped
     logging: *default-logging
     environment:
