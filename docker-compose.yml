@@ -14,7 +14,7 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-db:${DB_TAG:-alpine}
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-db:${DB_TAG:-v2}
     restart: unless-stopped
     logging: *default-logging
     environment:
@@ -34,7 +34,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-api:${API_TAG:-1.0.0}
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-api:${API_TAG:-v2}
     restart: unless-stopped
     logging: *default-logging
     environment:
