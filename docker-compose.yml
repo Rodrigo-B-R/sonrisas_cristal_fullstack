@@ -132,6 +132,20 @@ services:
     depends_on:
       - prometheus
 
+  # Quick tunnel de Cloudflare (sin dominio ni cuenta): publica la API en una URL https://*.trycloudflare.com
+  # La URL cambia cada vez que se recrea este contenedor. Para verla:  docker compose logs tunnel | grep trycloudflare
+  # IP fija: la API solo cree en CF-Connecting-IP si la peticion viene de esta IP (ver TRUSTED_PROXIES en .env).
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    logging: *default-logging
+    command: tunnel --no-autoupdate --protocol http2 --url http://api:8000
+    networks:
+      sonrisas_net:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      - api
+
 secrets:
   metrics_token:
     environment: METRICS_TOKEN
@@ -144,3 +158,6 @@ volumes:
 
 networks:
   sonrisas_net:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
