@@ -34,7 +34,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-api:${API_TAG:-v2}
+    image: ghcr.io/rodrigo-b-r/sonrisas-cristal-api:${API_TAG:-v3}
     restart: unless-stopped
     logging: *default-logging
     environment:
